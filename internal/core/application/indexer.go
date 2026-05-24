@@ -33,6 +33,7 @@ const (
 	maxPageSizeSpendableVtxos = 100
 	maxPageSizeVtxoChain      = 100
 	maxPageSizeVirtualTxs     = 100
+	maxPageSizeVtxoAncestors  = 100
 
 	defaultAuthTokenTTL = 5 * time.Minute
 )
@@ -76,6 +77,10 @@ type IndexerService interface {
 		ctx context.Context, authToken string, txids []string, page *Page,
 	) (*VirtualTxsResp, error)
 	GetVirtualTxsByIntent(ctx context.Context, intent Intent, page *Page) (*VirtualTxsResp, error)
+	GetVtxoAncestors(
+		ctx context.Context, authToken string, outpoint Outpoint, page *Page,
+	) (*VtxoAncestorsResp, error)
+	GetVtxoAncestorsByIntent(ctx context.Context, intent Intent, page *Page) (*VtxoAncestorsResp, error)
 	GetBatchSweepTxs(ctx context.Context, batchOutpoint Outpoint) ([]string, error)
 	GetAsset(ctx context.Context, assetID string) ([]Asset, error)
 	ListTokens(ctx context.Context, token, hash, outpoint, txid string) ([]TokenEntry, error)
@@ -402,6 +407,168 @@ func (i *indexerService) GetVtxoChainByIntent(
 	}
 	resp.AuthToken = token
 	return resp, nil
+}
+
+func (i *indexerService) GetVtxoAncestors(
+	ctx context.Context, authToken string, outpoint Outpoint, page *Page,
+) (*VtxoAncestorsResp, error) {
+	switch i.txExposure {
+	case exposurePublic:
+		// Nothing to do
+	case exposureWithheld:
+		if authToken != "" {
+			hash, err := i.validateAuthToken(authToken)
+			if err != nil {
+				return nil, err
+			}
+
+			outpoints, _, ok := i.tokenCache.getOutpoints(hash)
+			if !ok {
+				return nil, fmt.Errorf("auth token not found")
+			}
+			if _, ok := outpoints[outpoint.String()]; !ok {
+				return nil, fmt.Errorf("auth token is not for outpoint %s", outpoint)
+			}
+		}
+	case exposurePrivate:
+		hash, err := i.validateAuthToken(authToken)
+		if err != nil {
+			return nil, err
+		}
+
+		outpoints, _, ok := i.tokenCache.getOutpoints(hash)
+		if !ok {
+			return nil, fmt.Errorf("auth token not found")
+		}
+		if _, ok := outpoints[outpoint.String()]; !ok {
+			return nil, fmt.Errorf("auth token is not for outpoint %s", outpoint)
+		}
+	}
+	resp, _, err := i.getVtxoAncestors(ctx, outpoint, page)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (i *indexerService) GetVtxoAncestorsByIntent(
+	ctx context.Context, intent Intent, page *Page,
+) (*VtxoAncestorsResp, error) {
+	outpoints, err := i.extractOutpointsFromIntent(intent)
+	if err != nil {
+		return nil, err
+	}
+	if len(outpoints) > 1 {
+		return nil, fmt.Errorf("only one outpoint expected in intent proof")
+	}
+	outpoint := outpoints[0]
+
+	switch i.txExposure {
+	case exposurePublic:
+		resp, _, err := i.getVtxoAncestors(ctx, outpoint, page)
+		return resp, err
+	case exposureWithheld, exposurePrivate:
+		if err := i.validateIntent(ctx, intent); err != nil {
+			return nil, err
+		}
+	}
+
+	resp, allOutpoints, err := i.getVtxoAncestors(ctx, outpoint, page)
+	if err != nil {
+		return nil, err
+	}
+
+	token, err := i.createAuthToken(allOutpoints)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create auth token: %w", err)
+	}
+	resp.AuthToken = token
+	return resp, nil
+}
+
+func (i *indexerService) getVtxoAncestors(
+	ctx context.Context, outpoint Outpoint, page *Page,
+) (*VtxoAncestorsResp, []Outpoint, error) {
+	ancestors, allOutpoints, err := i.buildVtxoAncestors(ctx, outpoint)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	paged, pageResp := paginate(ancestors, page, maxPageSizeVtxoAncestors)
+	return &VtxoAncestorsResp{
+		Ancestors: paged,
+		Page:      pageResp,
+	}, allOutpoints, nil
+}
+
+// buildVtxoAncestors returns the flat list of ancestor vtxos for the given outpoint via BFS.
+// For non-preconfirmed vtxos (batch tree leaves) the ancestors list is empty.
+// allOutpoints includes the starting outpoint plus all ancestor outpoints (for auth token creation).
+func (i *indexerService) buildVtxoAncestors(
+	ctx context.Context, outpoint Outpoint,
+) ([]domain.Vtxo, []Outpoint, error) {
+	ancestors := make([]domain.Vtxo, 0)
+	nextOutpoints := []domain.Outpoint{outpoint}
+	visited := make(map[string]bool)
+	allOutpoints := []Outpoint{outpoint}
+	visited[outpoint.String()] = true
+
+	for len(nextOutpoints) > 0 {
+		vtxos, err := i.repoManager.Vtxos().GetVtxos(ctx, nextOutpoints)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(vtxos) == 0 {
+			return nil, nil, fmt.Errorf("vtxo not found for outpoint: %v", nextOutpoints)
+		}
+
+		newNext := make([]domain.Outpoint, 0)
+		for _, vtxo := range vtxos {
+			if !vtxo.Preconfirmed {
+				// leaf of a batch tree — no vtxo ancestors
+				continue
+			}
+
+			offchainTx, err := i.repoManager.OffchainTxs().GetOffchainTx(ctx, vtxo.Txid)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to retrieve offchain tx: %s", err)
+			}
+
+			for _, b64 := range offchainTx.CheckpointTxs {
+				ptx, err := psbt.NewFromRawBytes(strings.NewReader(b64), true)
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to deserialize checkpoint tx: %s", err)
+				}
+
+				for _, in := range ptx.UnsignedTx.TxIn {
+					parentOutpoint := domain.Outpoint{
+						Txid: in.PreviousOutPoint.Hash.String(),
+						VOut: in.PreviousOutPoint.Index,
+					}
+					key := parentOutpoint.String()
+					if visited[key] {
+						continue
+					}
+					visited[key] = true
+					allOutpoints = append(allOutpoints, parentOutpoint)
+					newNext = append(newNext, parentOutpoint)
+				}
+			}
+		}
+
+		// fetch newly discovered parent vtxos to add to ancestors list
+		if len(newNext) > 0 {
+			parentVtxos, err := i.repoManager.Vtxos().GetVtxos(ctx, newNext)
+			if err != nil {
+				return nil, nil, err
+			}
+			ancestors = append(ancestors, parentVtxos...)
+		}
+
+		nextOutpoints = newNext
+	}
+
+	return ancestors, allOutpoints, nil
 }
 
 func (i *indexerService) GetVirtualTxs(

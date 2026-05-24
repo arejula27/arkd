@@ -745,6 +745,93 @@
         }
       }
     },
+    "/v1/indexer/vtxo/{outpoint.txid}/{outpoint.vout}/ancestors": {
+      "get": {
+        "tags": [
+          "IndexerService"
+        ],
+        "description": "GetVtxoAncestors returns the chain of ancestor vtxos (the vtxos that were spent to create\nthe provided vtxo, recursively). For non-preconfirmed vtxos (batch tree leaves) the list\nis empty. The response may be paginated if the results span multiple pages.",
+        "operationId": "IndexerService_GetVtxoAncestors",
+        "parameters": [
+          {
+            "name": "outpoint.txid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "outpoint.vout",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "uint32"
+            }
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page.size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page.index",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "intent.proof",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "intent.message",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "a successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetVtxoAncestorsResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/indexer/vtxo/{outpoint.txid}/{outpoint.vout}/chain": {
       "get": {
         "tags": [
@@ -1198,6 +1285,42 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "GetVtxoAncestorsRequest": {
+        "title": "GetVtxoAncestorsRequest",
+        "type": "object",
+        "properties": {
+          "intent": {
+            "$ref": "#/components/schemas/IndexerIntent"
+          },
+          "outpoint": {
+            "$ref": "#/components/schemas/IndexerOutpoint"
+          },
+          "page": {
+            "$ref": "#/components/schemas/IndexerPageRequest"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "GetVtxoAncestorsResponse": {
+        "title": "GetVtxoAncestorsResponse",
+        "type": "object",
+        "properties": {
+          "ancestors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IndexerVtxo"
+            }
+          },
+          "authToken": {
+            "type": "string"
+          },
+          "page": {
+            "$ref": "#/components/schemas/IndexerPageResponse"
           }
         }
       },

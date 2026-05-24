@@ -146,6 +146,12 @@ type VtxoChainResp struct {
 	AuthToken string
 }
 
+type VtxoAncestorsResp struct {
+	Ancestors []domain.Vtxo
+	Page      PageResp
+	AuthToken string
+}
+
 type VOut int
 
 type CommitmentTxInfo struct {

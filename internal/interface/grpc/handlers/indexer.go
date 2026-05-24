@@ -371,6 +371,45 @@ func (e *indexerService) GetVtxoChain(
 	}, nil
 }
 
+func (e *indexerService) GetVtxoAncestors(
+	ctx context.Context, request *arkv1.GetVtxoAncestorsRequest,
+) (*arkv1.GetVtxoAncestorsResponse, error) {
+	page, err := parsePage(request.GetPage())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	var resp *application.VtxoAncestorsResp
+
+	if request.GetIntent() != nil {
+		intent, parseErr := parseIndexerIntent(request.GetIntent())
+		if parseErr != nil {
+			return nil, status.Error(codes.InvalidArgument, parseErr.Error())
+		}
+		resp, err = e.indexerSvc.GetVtxoAncestorsByIntent(ctx, *intent, page)
+	} else {
+		outpoint, parseErr := parseOutpoint(request.GetOutpoint())
+		if parseErr != nil {
+			return nil, status.Error(codes.InvalidArgument, parseErr.Error())
+		}
+		resp, err = e.indexerSvc.GetVtxoAncestors(ctx, request.GetToken(), *outpoint, page)
+	}
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "%s", err.Error())
+	}
+
+	ancestors := make([]*arkv1.IndexerVtxo, 0, len(resp.Ancestors))
+	for _, vtxo := range resp.Ancestors {
+		ancestors = append(ancestors, newIndexerVtxo(vtxo))
+	}
+
+	return &arkv1.GetVtxoAncestorsResponse{
+		Ancestors: ancestors,
+		Page:      protoPage(resp.Page),
+		AuthToken: resp.AuthToken,
+	}, nil
+}
+
 func (e *indexerService) GetVirtualTxs(
 	ctx context.Context, request *arkv1.GetVirtualTxsRequest,
 ) (*arkv1.GetVirtualTxsResponse, error) {

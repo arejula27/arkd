@@ -28,6 +28,7 @@ const (
 	IndexerService_GetVtxoChain_FullMethodName              = "/ark.v1.IndexerService/GetVtxoChain"
 	IndexerService_GetVirtualTxs_FullMethodName             = "/ark.v1.IndexerService/GetVirtualTxs"
 	IndexerService_GetAsset_FullMethodName                  = "/ark.v1.IndexerService/GetAsset"
+	IndexerService_GetVtxoAncestors_FullMethodName          = "/ark.v1.IndexerService/GetVtxoAncestors"
 	IndexerService_GetBatchSweepTransactions_FullMethodName = "/ark.v1.IndexerService/GetBatchSweepTransactions"
 	IndexerService_SubscribeForScripts_FullMethodName       = "/ark.v1.IndexerService/SubscribeForScripts"
 	IndexerService_UnsubscribeForScripts_FullMethodName     = "/ark.v1.IndexerService/UnsubscribeForScripts"
@@ -71,6 +72,10 @@ type IndexerServiceClient interface {
 	GetVirtualTxs(ctx context.Context, in *GetVirtualTxsRequest, opts ...grpc.CallOption) (*GetVirtualTxsResponse, error)
 	// GetAsset returns the asset information and metadata for the specified asset ID.
 	GetAsset(ctx context.Context, in *GetAssetRequest, opts ...grpc.CallOption) (*GetAssetResponse, error)
+	// GetVtxoAncestors returns the chain of ancestor vtxos (the vtxos that were spent to create
+	// the provided vtxo, recursively). For non-preconfirmed vtxos (batch tree leaves) the list
+	// is empty. The response may be paginated if the results span multiple pages.
+	GetVtxoAncestors(ctx context.Context, in *GetVtxoAncestorsRequest, opts ...grpc.CallOption) (*GetVtxoAncestorsResponse, error)
 	// GetBatchSweepTransactions returns the list of transaction (txid) that swept a given batch
 	// output.
 	// In most cases the list contains only one txid, meaning that all the amount locked for a
@@ -196,6 +201,16 @@ func (c *indexerServiceClient) GetAsset(ctx context.Context, in *GetAssetRequest
 	return out, nil
 }
 
+func (c *indexerServiceClient) GetVtxoAncestors(ctx context.Context, in *GetVtxoAncestorsRequest, opts ...grpc.CallOption) (*GetVtxoAncestorsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetVtxoAncestorsResponse)
+	err := c.cc.Invoke(ctx, IndexerService_GetVtxoAncestors_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *indexerServiceClient) GetBatchSweepTransactions(ctx context.Context, in *GetBatchSweepTransactionsRequest, opts ...grpc.CallOption) (*GetBatchSweepTransactionsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetBatchSweepTransactionsResponse)
@@ -291,6 +306,10 @@ type IndexerServiceServer interface {
 	GetVirtualTxs(context.Context, *GetVirtualTxsRequest) (*GetVirtualTxsResponse, error)
 	// GetAsset returns the asset information and metadata for the specified asset ID.
 	GetAsset(context.Context, *GetAssetRequest) (*GetAssetResponse, error)
+	// GetVtxoAncestors returns the chain of ancestor vtxos (the vtxos that were spent to create
+	// the provided vtxo, recursively). For non-preconfirmed vtxos (batch tree leaves) the list
+	// is empty. The response may be paginated if the results span multiple pages.
+	GetVtxoAncestors(context.Context, *GetVtxoAncestorsRequest) (*GetVtxoAncestorsResponse, error)
 	// GetBatchSweepTransactions returns the list of transaction (txid) that swept a given batch
 	// output.
 	// In most cases the list contains only one txid, meaning that all the amount locked for a
@@ -351,6 +370,9 @@ func (UnimplementedIndexerServiceServer) GetVirtualTxs(context.Context, *GetVirt
 }
 func (UnimplementedIndexerServiceServer) GetAsset(context.Context, *GetAssetRequest) (*GetAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAsset not implemented")
+}
+func (UnimplementedIndexerServiceServer) GetVtxoAncestors(context.Context, *GetVtxoAncestorsRequest) (*GetVtxoAncestorsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetVtxoAncestors not implemented")
 }
 func (UnimplementedIndexerServiceServer) GetBatchSweepTransactions(context.Context, *GetBatchSweepTransactionsRequest) (*GetBatchSweepTransactionsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBatchSweepTransactions not implemented")
@@ -549,6 +571,24 @@ func _IndexerService_GetAsset_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IndexerService_GetVtxoAncestors_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetVtxoAncestorsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IndexerServiceServer).GetVtxoAncestors(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IndexerService_GetVtxoAncestors_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IndexerServiceServer).GetVtxoAncestors(ctx, req.(*GetVtxoAncestorsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _IndexerService_GetBatchSweepTransactions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetBatchSweepTransactionsRequest)
 	if err := dec(in); err != nil {
@@ -674,6 +714,10 @@ var IndexerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAsset",
 			Handler:    _IndexerService_GetAsset_Handler,
+		},
+		{
+			MethodName: "GetVtxoAncestors",
+			Handler:    _IndexerService_GetVtxoAncestors_Handler,
 		},
 		{
 			MethodName: "GetBatchSweepTransactions",
