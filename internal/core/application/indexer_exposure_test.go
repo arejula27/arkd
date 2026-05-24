@@ -1324,6 +1324,19 @@ func (m *mockedVtxoRepo) GetVtxos(ctx context.Context, outpoints []domain.Outpoi
 	return nil, args.Error(1)
 }
 
+type mockedOffchainTxRepo struct {
+	mock.Mock
+	domain.OffchainTxRepository
+}
+
+func (m *mockedOffchainTxRepo) GetOffchainTx(ctx context.Context, txid string) (*domain.OffchainTx, error) {
+	args := m.Called(ctx, txid)
+	if v := args.Get(0); v != nil {
+		return v.(*domain.OffchainTx), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 type mockedRepoManager struct {
 	mock.Mock
 	ports.RepoManager // unimplemented methods panic on call
@@ -1339,6 +1352,13 @@ func (m *mockedRepoManager) Rounds() domain.RoundRepository {
 func (m *mockedRepoManager) Vtxos() domain.VtxoRepository {
 	if v := m.Called().Get(0); v != nil {
 		return v.(domain.VtxoRepository)
+	}
+	return nil
+}
+
+func (m *mockedRepoManager) OffchainTxs() domain.OffchainTxRepository {
+	if v := m.Called().Get(0); v != nil {
+		return v.(domain.OffchainTxRepository)
 	}
 	return nil
 }
